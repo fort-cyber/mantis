@@ -164,49 +164,64 @@ when unavailable. Consumers query via
     vulnerabilities from `workspace/historical_learnings.jsonl` to enrich
     summaries and provide a quick reference map to optimize downstream planning
     and research.
+
 04. **`/mantis-architecture` (Knowledge Base Architect):** Analyzes the codebase
     and clears the `workspace/learnings.jsonl` inbox to synthesize a permanent,
     interlinked Markdown Knowledge Base (`workspace/kb/`) detailing entities,
     data flows, and historical vulnerability classes.
+
 05. **`/mantis-threat-model` (Threat Modeler):** Evaluates the entities and
     architecture defined in the KB to establish or refine a living
     `workspace/kb/THREAT_MODEL.md`, focusing on trust boundaries and attacker
     profiles.
+
 06. **`/mantis-plan` (Strategist):** Scans workspace boundaries and reads the KB
     indices to output a targeted review strategy into `workspace/plan.json`,
     injecting specific `kb_references` file paths for context.
+
 07. **`/mantis-researcher` (Mantis Researcher):** Executes file-by-file triage
     and deep security flaw reviews, outputting hotspots as individual JSON files
     in `workspace/findings/`.
+
 08. **`/mantis-dedupe` (Deduplicator):** Groups index-based duplicate findings,
     merging records and deleting redundancies within `workspace/findings/`.
+
 09. **`/mantis-review` (Validator):** Filters out false positives using strict
     pragmatic constraints, updating the status in
     `workspace/findings/<id>.json`.
+
 10. **`/mantis-critic` (Critic):** Verifies release-build crash reproducibility
     (ignoring debug/assert checks), updates production viability in
     `workspace/findings/<id>.json`, and appends false positives/non-viable paths
     to `workspace/learnings.jsonl`.
+
 11. **`/mantis-reproduce` (Proof-of-Concept Developer):** Writes
     Proof-of-Concept Reproduction Scripts (Repros) or raw payloads, executes
-    them in isolated environments such as gVisor or Virtual Machines, and
-    updates reproduction status in `workspace/findings/<id>.json`.
+    them using a Tiered Iterative Reproduction strategy (unit micro-harness ->
+    functional subsystem -> full sandboxed service) with
+    intra/inter-conversation retries in isolated environments (gVisor, VMs,
+    QEMU), and updates reproduction status in `workspace/findings/<id>.json`.
+
 12. **`/mantis-chain` (Vulnerability Chainer):** Analyzes individual validated
     findings and knowledge base primitives to identify and construct complex
     multi-step exploit chains, creating new "Super Findings" in
     `workspace/findings/`.
+
 13. **`/mantis-patch` (Patcher):** Generates and applies code fixes, runs
     post-patch validation tests inside the sandbox, updates patch status in
     `workspace/findings/<id>.json`, and appends logs to
     `workspace/learnings.jsonl`.
+
 14. **`/mantis-calibrate` (Risk Calibrator):** Calculates a final numerical
     Mantis Risk Score (1-10) for each finding in the workspace directory based
     on impact, evidence, and viability, appending the results directly to each
     `workspace/findings/<id>.json` file.
+
 15. **`/mantis-reflect` (Reflector):** Parses the execution trajectories of the
     agents from the current round, extracting false assumptions, tool failures,
     and successes, and appends these structured insights to the
     `workspace/learnings.jsonl` inbox.
+
 16. **`/mantis-report` (Reporter):** Generates a human-readable security review
     packet containing verified/reproduced findings, evidence, risk rationales,
     and patch information at `workspace/report/review_packet-latest.md` (and

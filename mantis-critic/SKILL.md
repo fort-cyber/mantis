@@ -245,7 +245,11 @@ Execute the critic evaluation as follows:
    CODE_ROOT and read at least **15 lines of preceding context** and **15 lines
    of succeeding context** around the designated line numbers. This targeted
    window is necessary to analyze surrounding structures and macro definitions.
-   Proceed to Steps 4-5.
+   Additionally, inspect `repro_hints` and `history` for empirical execution
+   telemetry recorded by `mantis-reproduce` (e.g. `build_profile`,
+   `sanitizers_used`, `assertions_disabled`, `ingress_blocked`). Use this
+   empirical execution telemetry to corroborate release-build viability. Proceed
+   to Steps 4-5.
 
 4. **Evaluate Domain-Specific Viability Constraints:**
 

@@ -115,8 +115,9 @@
         },
         "repro_hints": {
           "type": "string",
-          "description": "Instructions for the reproducer agent on how to trigger the bug."
+          "description": "Instructions for triggering the bug, reached-sink evidence channels, and execution telemetry (e.g. build_profile, sanitizers_used, assertions_disabled, ingress_blocked)."
         },
+
         "production_viability": {
           "type": "string",
           "enum": ["VIABLE", "NON_VIABLE", "SAMPLE_OR_TEST", "CONDITIONAL_VIABLE"],

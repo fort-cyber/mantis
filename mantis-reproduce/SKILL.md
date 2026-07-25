@@ -198,6 +198,18 @@ Execute the reproduction stage under these constraints:
          viability, but always check status).
      - If no applicable findings exist, notify the user and exit.
 
+   **Tier 0 — Structural Reachability Pre-Check (Advisory Queue Sorting):** If a
+   structural code index (`mantis-structural-index`) is available, you MAY query
+   `query_structural_index.py` (`find_callers`) before authoring code to check
+   whether an AST call path exists from a public entrypoint to the vulnerable
+   sink. Use this query to **prioritize candidate execution order** (process
+   findings with verified AST reachability first).
+
+   - **CRITICAL HINT-ONLY GUARDRAIL:** AST reachability is a ranking HINT ONLY.
+     Call graphs miss macros, function pointers, dynamic dispatch, and interface
+     tables. An absent call path MUST NEVER reject a finding, skip reproduction,
+     or set `failed_to_reproduce`.
+
    **Snapshot drift check:** For each loaded finding, if it already has a
    `repro_snapshot_id` and Block B (Step 0) returns NOT_MATCHED, treat any
    stored PoC/offsets as STALE: regenerate the reproducer from scratch against
@@ -285,11 +297,57 @@ Execute the reproduction stage under these constraints:
    standard execution. Use your best judgment to construct a working harness for
    the artifact.
 
-   - *Optional Parallel Trajectory Search:* If your environment or agent
-     framework supports spawning subagents, you can deploy multiple concurrent
-     agents to attempt writing the reproducer via different logical approaches.
-     If any trajectory succeeds, immediately adopt its payload and discard the
-     others to escape potential "give up" loops.
+   - *Parallel Trajectory Search vs. Tiered Iterative Reproduction:*
+
+     - **Parallel Trajectory Search (Breadth-First):** When subagents are
+       available, deploy concurrent workers taking diverse logical approaches to
+       reproduce the bug. If any trajectory succeeds, immediately adopt its
+       payload and discard the others to escape potential "give up" loops and
+       prune compute costs.
+
+     - **Tiered Iterative Reproduction (Depth-First Payload Refinement):** Each
+       trajectory worker (or a single agent) uses a tiered escalation ladder
+       (Tier 1 -> Tier 2 -> Tier 3) to refine its trigger payload incrementally
+       rather than attempting a single-shot end-to-end launch.
+
+   - *Tiered Iterative Execution Ladder:*
+
+     - **Tier 1 (Micro-Harness / Sink Logic Validation):** Construct a
+       lightweight test calling the vulnerable function/module directly to
+       verify that the core bug hypothesis is sound in isolation.
+     - **Tier 2 (Subsystem / Interface Validation):** Pass the payload through
+       input serialization, parsers, routing, and auth wrappers to verify the
+       input survives intermediate processing without sanitization or
+       truncation.
+     - **Tier 3 (Full Sandboxed Service / E2E Validation):** Execute the
+       self-contained PoC against the target service via public APIs inside the
+       isolated sandbox (Docker, QEMU, VM). Yields the authoritative
+       `reproduced` verdict per Block F.
+
+   - **CRITICAL STEP-4 TIER-1 HARD GATE (Fail-Closed):**
+
+     - Tiers 1 and 2 are **internal stepping stones only**. You **MUST NEVER**
+       record `repro_status = "reproduced"` or `"statically_confirmed"` based on
+       a Tier-1 or Tier-2 execution.
+     - If a crash can **ONLY** be achieved by compiling a direct-call harness
+       that feeds a private/static function or bypasses the public API (Step 4),
+       and the payload cannot be escalated to trigger through Tier 3 (the public
+       API / sandboxed service), you **MUST TERMINATE AND RECORD**
+       `repro_status = "failed_to_reproduce"` with details citing
+       `"Internal Invariant Protection"`.
+
+   - *Attempt Cap Accounting & Local Retries:*
+
+     - **Sub-Tier-3 Stepping-Stone Sub-Budget:** Internal Tier-1 and Tier-2
+       trial runs are bounded local execution steps (max 3 trial executions per
+       conversation) and **DO NOT** increment the absolute per-finding attempt
+       counter in `state_root/workspace/archive/.repro_attempts.json`.
+     - **Absolute Attempt Cap Counting:** Only Tier-3 full sandboxed service
+       executions (or full end-to-end reproducer runs) increment the absolute
+       attempt counter toward the hard ceiling of 6 (Section 6).
+     - **Intra-Conversation Retries:** When a tier fails, inspect logs, adjust
+       payload parameters, fix harness setup, and retry up to 2-3 times within
+       the active conversation before reporting back to the orchestrator.
 
 ### Step 3a: Variant Hunting (re-attack only, MANDATORY)
 
@@ -534,17 +592,25 @@ and apply INV-1 (downgrade `VERIFIED_SECURE` → `VERIFICATION_FAILED`).
      * Open the lock file `state_root/workspace/archive/.repro_attempts.lock`
        (creating it if missing) and acquire an exclusive lock (`fcntl.flock`
        with `fcntl.LOCK_EX`) inside a context manager (`with` statement).
+
      * Read the current contents of the cache file
        `state_root/workspace/archive/.repro_attempts.json` (treating it as `{}`
        if missing or empty).
+
      * Increment the `count` field of this finding's cache-key entry — keyed by
        `signature` if present, else `stable_key`, the SAME key selection defined
-       above (the `{count, last_snapshot}` object) — by 1.
+       above (the `{count, last_snapshot}` object) — by 1 ONLY for Tier-3 (full
+       end-to-end sandboxed service) executions. Internal Tier-1 and Tier-2
+       stepping-stone trials MUST NOT increment `count` (they are governed by
+       the sub-budget rule in Step 3).
+
      * Write the updated JSON to a temporary file in the same directory (e.g.,
        `state_root/workspace/archive/.repro_attempts.json.tmp`).
+
      * Atomically replace the target cache file with the temporary file (e.g.,
        `os.replace` in Python) to ensure readers never see a truncated or
        incomplete file.
+
      * Close the lock file descriptor to release the lock (automatically handled
        by exiting the `with` context manager).
 
@@ -563,6 +629,11 @@ and apply INV-1 (downgrade `VERIFIED_SECURE` → `VERIFICATION_FAILED`).
      - `"repro_output"`
 
      - `"repro_snapshot_id"`: the current SNAPSHOT_ID this run executed against.
+
+     - `"repro_hints"`: Record compilation and sandbox execution telemetry
+       (e.g., `sanitizers_used: ASan+UBSan`, `assertions_disabled: true`,
+       `build_profile: release`) to provide empirical execution evidence for
+       `/mantis-critic`.
 
      - If reproduction succeeds (`repro_status` is evaluated as `"reproduced"`
        or `"statically_confirmed"`) and the finding's current `"status"` is

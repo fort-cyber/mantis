@@ -105,6 +105,10 @@ Follow these guidelines during the consultation:
     LLM reasoning, runs after the snapshot is pinned and before the first
     code-reading analysis stage, and degrades gracefully to grep when
     unavailable.
+11. **Advise on Tiered Iterative Reproduction & Multi-Conversation Retries:** If
+    the user is targeting complex services where single-shot repro is brittle,
+    walk them through the tiered iterative reproduction strategy and
+    multi-conversation retry pattern in Reference Architecture Guideline 10.
 
 ## Reference Architecture Guidelines
 
@@ -1069,3 +1073,77 @@ behave exactly as they do today:
   slices) by using function boundaries from the structural index.
 - The structural index and the RAG index can share the same vector embedding
   infrastructure if both are implemented.
+
+______________________________________________________________________
+
+### 10. Tiered Iterative Reproduction & Multi-Conversation Retry Strategy
+
+For complex services, attempting a single-shot reproduction directly against a
+full sandboxed service often suffers from high search entropy, brittle
+configuration, and hard-to-debug failures. A tiered strategy breaks reproduction
+into incremental milestones, while an inter-conversation retry architecture
+prevents reasoning deadlocks and context bloat.
+
+#### A. Orchestration & Inter-Conversation Retries
+
+1. **Intra-Conversation Retries (Local Agent Trajectory):**
+
+   - The active subagent conversation retries 2–3 times locally within its
+     context window to adjust parameters, fix setup bugs, or refine payloads.
+
+2. **Inter-Conversation Retries (Fresh Context + Accumulated Artifacts):**
+
+   - **Trigger:** If intra-conversation retries fail to reach Tier 3
+     (`reproduced`), the orchestrator terminates the stalled conversation and
+     launches a **new subagent conversation** (a fresh context window).
+   - **Context Provisioning:** The orchestrator populates the new prompt with
+     structured attempt data from
+     `state_root/workspace/archive/.repro_attempts.json` and trajectory
+     learnings from `workspace/learnings.jsonl` (e.g., *"Attempt 1 failed due to
+     missing auth header X; Attempt 2 proved parser strips unescaped quotes"*).
+   - **Benefit:** Eliminates context bloat and reasoning inertia ("hallucination
+     traps"), enabling a fresh agent to solve the problem using prior empirical
+     observations without repeating past mistakes.
+
+3. **Attempt Cap Accounting & Arithmetic:**
+
+   - The orchestrator maintains
+     `state_root/workspace/archive/.repro_attempts.json`.
+   - **Tier 3 Increment Only:** Only Tier-3 full sandboxed service executions
+     (or full end-to-end reproducer runs) increment the per-finding attempt
+     counter toward the absolute hard ceiling of 6.
+   - **Stepping-Stone Sub-Budget:** Internal Tier-1 and Tier-2 trial runs are
+     bounded by a local sub-budget (max 3 trial executions per conversation) and
+     do not consume the absolute 6-attempt cap.
+
+#### B. Harness-Enforced Tier 4 (Staging & Live Pre-Production Execution)
+
+To prevent un-gated exploit execution on live infrastructure, Tier 4 (Staging /
+Pre-Production verification) is **strictly owned and enforced by the
+programmatic orchestrator harness**, never by LLM discretion:
+
+- **Sandbox Boundary:** `mantis-reproduce` executes strictly within isolated
+  local sandboxes (Tiers 1–3) ending at Tier 3 (`reproduced` /
+  `failed_to_reproduce`).
+- **Deterministic Gate:** The harness intercepts a Tier 3 `reproduced` verdict.
+  If live/staging validation (Tier 4) is configured, the harness **MUST NOT**
+  automatically invoke remote execution. It must enforce a **programmatic
+  Human-in-the-Loop gate**:
+  - Prompt the human operator for explicit interactive confirmation, OR
+  - Require a cryptographically signed approval token / authorization callback.
+- **Fail-Closed Default:** If human approval is missing or denied, Tier 4 is
+  skipped and the Tier 3 sandboxed verdict remains authoritative.
+
+#### C. Local Ingress / Middlebox Edge Annotation (Post-Tier-3 Sandbox Verification)
+
+To eliminate false-positive findings caused by default edge filters ("Works on
+localhost:8080, but dies at the WAF/proxy"), the orchestrator can optionally
+execute a Tier 3 PoC through a local reverse proxy or API gateway (e.g. NGINX,
+Envoy, ModSecurity) running inside the local sandbox:
+
+- **Annotation Only:** A payload blocked by a local middlebox MUST NOT downgrade
+  a Tier 3 `reproduced` verdict to `failed_to_reproduce`.
+- **Critic Integration:** The harness records `ingress_blocked: true` (or edge
+  filter details) in the finding's `repro_hints` or history. This provides
+  empirical evidence for `/mantis-critic` to classify `production_viability` as
+  `"CONDITIONAL_VIABLE"` (mitigated by default edge proxy configuration).
