@@ -1,2 +1,7 @@
 # Exclude local execution workspace
 workspace/
+
+# Exclude python cache
+__pycache__/
+*.pyc
+.venv/
