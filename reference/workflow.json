@@ -24,7 +24,9 @@
       "id": "reviewer",
       "type": "agent",
       "system_prompt": "prompts/system-reviewer.md",
-      "tools": ["read_file", "get_findings"]
+      "tools": ["read_file", "get_findings"],
+      "output_schema": "ReviewVerdict",
+      "output_key": "verdict"
     },
     {
       "id": "reviewer_classifier",
@@ -36,7 +38,9 @@
       "type": "agent",
       "system_prompt": "prompts/system-reproducer.md",
       "tools": ["run_sandbox", "get_findings"],
-      "on_enter_status": "static_confirmed"
+      "on_enter_status": "static_confirmed",
+      "output_schema": "ReproVerdict",
+      "output_key": "verdict"
     },
     {
       "id": "repro_classifier",

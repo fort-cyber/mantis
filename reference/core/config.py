@@ -1,12 +1,32 @@
 import os
 
+from typing import Optional
+
 DEFAULT_MODEL = "vertex_ai/gemini-3.6-flash"
 
-def get_llm_kwargs(model_id: str = None, default_model: str = DEFAULT_MODEL) -> tuple[str, dict]:
-    """Resolves the LLM mapping details cleanly with precedence: node > MODEL_ID env > default."""
+def get_llm_kwargs(
+    model_id: Optional[str] = None,
+    default_model: str = DEFAULT_MODEL,
+    api_base: Optional[str] = None,
+    default_api_base: Optional[str] = None,
+    timeout: Optional[float] = None,
+    default_timeout: Optional[float] = None,
+) -> tuple[str, dict]:
+    """Resolves the LLM mapping details cleanly with precedence: node > ENV > config/default."""
     model_id = model_id or os.environ.get("MODEL_ID") or default_model
+    api_base = api_base or os.environ.get("LLM_API_BASE") or default_api_base
+    raw_timeout = timeout if timeout is not None else (os.environ.get("LLM_TIMEOUT") or os.environ.get("LLM_REQUEST_TIMEOUT") or default_timeout)
         
     llm_kwargs = {"model": model_id}
+    if api_base:
+        llm_kwargs["api_base"] = api_base
+    if raw_timeout is not None:
+        try:
+            timeout_val = float(raw_timeout)
+            if timeout_val > 0:
+                llm_kwargs["timeout"] = timeout_val
+        except (ValueError, TypeError):
+            pass
     
     if model_id.startswith("vertex_ai/"):
         project = os.environ.get("VERTEXAI_PROJECT", os.environ.get("GOOGLE_CLOUD_PROJECT"))

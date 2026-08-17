@@ -10,7 +10,8 @@ working minimal harness that demonstrates how to build your own with the ADK.
 2. We store results in sqlite.
 3. We use minimalistic prompts with only a few agents, rather than a more
    complex agent architecture.
-4. We demonstrate a plugin mechanism to hook up new sandboxes.
+4. We demonstrate a plugin mechanism to hook up new sandboxes (`microsandbox`,
+   `gvisor`, or `static-only` for static-only analysis).
 5. We **DO NOT** protect against prompt injection or malicious code. If you want
    such a thing you will require significantly more effort to handle that.
 

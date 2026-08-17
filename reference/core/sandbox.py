@@ -13,28 +13,34 @@ class Sandbox(Protocol):
     """
     async def execute(self, command: str) -> str: ...
     async def apply_patch(self, diff: str) -> str: ...
+    async def preflight(self) -> None: ...
     async def aclose(self) -> None: ...
 
-class NullSandbox:
+class StaticOnlySandbox:
+    """No-op sandbox for static-only vulnerability pipelines. Dynamic execution is disabled."""
+
     def __init__(self, target_path: str = "", **_):
         self.target_path = os.path.realpath(target_path) if target_path else ""
 
     async def execute(self, command: str) -> str:
-        return "SANDBOX-UNAVAILABLE: no sandbox configured; nothing was executed."
+        return "SANDBOX-UNAVAILABLE: static-only sandbox; no dynamic commands are executed."
 
     apply_patch = execute
+
+    async def preflight(self) -> None:
+        pass
 
     async def aclose(self) -> None:
         pass
 
 SANDBOXES: dict[str, type] = {
-    "none": NullSandbox,
+    "static-only": StaticOnlySandbox,
     "gvisor": GvisorSandbox,
     "microsandbox": MicrosandboxSandbox,
 }
 
 def build_sandbox(cfg: dict, target_path: str = "") -> Sandbox:
-    kind = cfg.get("type", "none")
+    kind = cfg.get("type", "static-only")
     if kind not in SANDBOXES:
         raise ValueError(
             f"Unknown sandbox type '{kind}'. Available: {sorted(SANDBOXES)}"

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -37,7 +38,7 @@ class GvisorSandbox:
         if not tool or shutil.which(tool) is None:
             raise ValueError(
                 f"sandbox type 'gvisor' requires 'docker' or 'podman' with '{runtime}' on PATH. "
-                "Install a container engine with gVisor or set sandbox.type to 'none'."
+                "Install a container engine with gVisor or set sandbox.type to 'static-only'."
             )
         self.tool = tool
         self.container_name = f"mantis-gv-{uuid.uuid4().hex[:12]}"
@@ -138,6 +139,42 @@ class GvisorSandbox:
             return f"exit={rc}\n{out[:16000]}"
 
         return await asyncio.to_thread(_patch)
+
+    async def preflight(self) -> None:
+        def _check():
+            out = subprocess.run(
+                [self.tool, "info", "--format", "{{json .Runtimes}}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if out.returncode != 0:
+                err_msg = (out.stderr or "").strip() or f"{self.tool} daemon not reachable"
+                raise RuntimeError(
+                    f"Could not connect to {self.tool} daemon ({err_msg}). "
+                    f"Ensure {self.tool} is running, or set sandbox.type to 'static-only'."
+                )
+
+            try:
+                runtimes = json.loads(out.stdout or "{}")
+            except json.JSONDecodeError:
+                runtimes = {}
+
+            if self.runtime not in runtimes:
+                raise RuntimeError(
+                    f"'{self.runtime}' is not a registered {self.tool} runtime. "
+                    f"Run `sudo runsc install && sudo systemctl restart {self.tool}`, "
+                    "or set sandbox.type to 'microsandbox' or 'static-only'."
+                )
+
+            img_out = subprocess.run(
+                [self.tool, "image", "inspect", self.image],
+                capture_output=True, text=True, timeout=10,
+            )
+            if img_out.returncode != 0:
+                raise RuntimeError(
+                    f"sandbox image '{self.image}' not found in the local {self.tool} cache. "
+                    f"Run ./install.sh to build it, or set sandbox.type to 'static-only'."
+                )
+        await asyncio.to_thread(_check)
 
     async def aclose(self) -> None:
         if self._started:

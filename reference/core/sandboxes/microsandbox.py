@@ -1,6 +1,6 @@
 import os
 import sys
-from microsandbox import Sandbox as MsbSandbox
+from microsandbox import Sandbox as MsbSandbox, PullPolicy
 from microsandbox.types import Network
 
 MAX_OUTPUT = 16000
@@ -24,7 +24,7 @@ class MicrosandboxSandbox:
         if sys.platform.startswith("linux") and not os.access("/dev/kvm", os.R_OK | os.W_OK):
             raise RuntimeError(
                 "Hardware virtualization unavailable: '/dev/kvm' is not readable/writable. "
-                "Ensure KVM is enabled and the user is in the 'kvm' group, or set sandbox.type to 'none'."
+                "Ensure KVM is enabled and the user is in the 'kvm' group, or set sandbox.type to 'static-only'."
             )
         self.target_path = os.path.realpath(target_path) if target_path else ""
         self.image = image
@@ -41,7 +41,10 @@ class MicrosandboxSandbox:
             name = f"mantis-{os.getpid()}-{abs(hash(self.target_path)) % 10**8}"
             sb = await MsbSandbox.create(
                 name=name,
-                image=self.image, network=Network.none(), replace=True,
+                image=self.image,
+                network=Network.none(),
+                pull_policy=PullPolicy.NEVER,
+                replace=True,
             )
             await sb.fs.mkdir(self.workdir)
 
@@ -88,6 +91,16 @@ class MicrosandboxSandbox:
             return res
         except Exception as e:
             return f"SANDBOX-ERROR: {type(e).__name__}: {e}"
+
+    async def preflight(self) -> None:
+        from microsandbox import Image, ImageNotFoundError
+        try:
+            await Image.get(self.image)
+        except ImageNotFoundError as e:
+            raise RuntimeError(
+                f"sandbox image '{self.image}' not found in the local cache. "
+                f"Run ./install.sh to build it, or set sandbox.type to 'gvisor' or 'static-only'. ({e})"
+            )
 
     async def aclose(self) -> None:
         if self._sb is not None:

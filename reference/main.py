@@ -54,7 +54,12 @@ async def execute_sub_task(
                 node_name = node_path.split("/")[-1].split("@")[0]
                 if status_map and db_path and node_name in status_map and node_name not in stamped_nodes:
                     stamped_nodes.add(node_name)
-                    update_status(db_path, filepath, run_id, status_map[node_name])
+                    new_status = status_map[node_name]
+                    ctx = current_run_context.get()
+                    if new_status == "dynamic_confirmed" and not (ctx and ctx.sandbox_executed):
+                        pass
+                    else:
+                        update_status(db_path, filepath, run_id, new_status)
 
             banner = (node_path, route)
             if (node_path or route) and banner != last_banner:
@@ -154,6 +159,7 @@ async def pipeline(scan_target: str) -> int:
     
     try:
         test_sandbox = build_sandbox(config.get("sandbox", {}), files_to_scan[0])
+        await test_sandbox.preflight()
         await test_sandbox.aclose()
     except (ValueError, TypeError, RuntimeError) as e:
         print(f"Sandbox Configuration Error: {e}", file=sys.stderr)

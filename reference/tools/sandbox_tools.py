@@ -6,7 +6,10 @@ async def run_sandbox(command: str) -> str:
     if ctx is None or ctx.sandbox is None:
         return "Sandbox Error: No active sandbox environment."
     try:
-        return await ctx.sandbox.execute(command)
+        res = await ctx.sandbox.execute(command)
+        if isinstance(res, str) and res.startswith("exit="):
+            ctx.sandbox_executed = True
+        return res
     except Exception as e:
         return f"Sandbox Error: {e}"
 

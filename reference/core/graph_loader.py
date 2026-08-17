@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from typing import Annotated, Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from google import adk
@@ -22,8 +21,13 @@ class AgentNode(_Base):
     id: str
     type: Literal["agent"]
     system_prompt: str
+    model: Optional[str] = None
+    api_base: Optional[str] = None
+    timeout: Optional[float] = Field(default=None, gt=0)
     tools: list[str] = Field(default_factory=list)
     on_enter_status: Optional[str] = None
+    output_schema: Optional[str] = None   # class name in core.schemas
+    output_key: Optional[str] = None      # session-state key to write it to
 
 
 
@@ -45,13 +49,15 @@ class EdgeSpec(_Base):
 
 
 class SandboxConfig(_Base):
-    type: str = "none"
+    type: str = "static-only"
     options: dict[str, Any] = Field(default_factory=dict)
 
 
 class GlobalConfig(_Base):
     db_path: str = "findings.db"
     default_model: str = DEFAULT_MODEL
+    api_base: Optional[str] = None
+    timeout: Optional[float] = Field(default=None, gt=0)
     retry_attempts: int = Field(default=3, ge=0)
     seed_prompt: str = DEFAULT_SEED_PROMPT
     sandbox: SandboxConfig = Field(default_factory=SandboxConfig)
@@ -80,38 +86,13 @@ def create_classifier(node_id: str, routes: list[str], max_visits: int = 1):
         state_key = f"{node_id}_visits"
         visits = ctx.state.get(state_key, 0) + 1
 
-        input_str = ""
-        if isinstance(node_input, str):
-            input_str = node_input
-        elif hasattr(node_input, "parts"):
-            input_str = " ".join(getattr(p, "text", "") for p in node_input.parts if getattr(p, "text", ""))
-        elif node_input is not None:
-            input_str = str(node_input)
-        elif hasattr(ctx, "session") and hasattr(ctx.session, "events"):
-            for ev in reversed(ctx.session.events):
-                if hasattr(ev, "content") and ev.content and hasattr(ev.content, "parts"):
-                    texts = [getattr(p, "text", "") for p in ev.content.parts if getattr(p, "text", "")]
-                    if texts:
-                        input_str = " ".join(texts)
-                        break
+        verdict = ctx.state.get("verdict") or {}
+        route = verdict.get("route") if isinstance(verdict, dict) else getattr(verdict, "route", None)
 
-        lines = [line.strip() for line in input_str.strip().splitlines() if line.strip()]
-        last_line = lines[-1] if lines else ""
+        if route in routes:
+            return adk.Event(output=node_input, state={state_key: visits}, route=route)
 
-        # Cleanse and normalize the last line (strip markdown formatting, prefix words, backticks, quotes, punctuation, ->)
-        cleansed = re.sub(
-            r'^(?:[*#_>`\s-]*(?:the\s+)?(?:verdict|decision|result|status|output|route|conclusion)\b\s*(?:is\b)?\s*[:=-]?\s*)',
-            '',
-            last_line,
-            flags=re.IGNORECASE
-        ).strip()
-        cleansed = cleansed.strip('`"\'*#:.,;()[]{}-> \t\r\n')
-
-        exact_matched = [r for r in routes if r.lower() == cleansed.lower()]
-        if len(exact_matched) == 1:
-            return adk.Event(output=node_input, state={state_key: visits}, route=exact_matched[0])
-
-        print(f"[{node_id}] no exact route match for {cleansed!r} - falling back")
+        print(f"[{node_id}] verdict {route!r} not in declared routes {routes}; routing to fallback")
 
         if max_visits and max_visits > 1:
             if visits < max_visits:
@@ -175,7 +156,14 @@ def load_workflow_from_json(json_path: str) -> tuple[Workflow, dict]:
         if isinstance(node_cfg, AgentNode):
             node_has_error = False
             try:
-                _, llm_kwargs = get_llm_kwargs(None, spec.config.default_model)
+                _, llm_kwargs = get_llm_kwargs(
+                    node_cfg.model,
+                    spec.config.default_model,
+                    api_base=node_cfg.api_base,
+                    default_api_base=spec.config.api_base,
+                    timeout=node_cfg.timeout,
+                    default_timeout=spec.config.timeout,
+                )
             except Exception as e:
                 errors.append(f"Node {node_id}: {str(e)}")
                 node_has_error = True
@@ -198,6 +186,14 @@ def load_workflow_from_json(json_path: str) -> tuple[Workflow, dict]:
                     errors.append(f"Node {node_id}: Unknown tool '{t}'")
                     node_has_error = True
 
+            schema_cls = None
+            if node_cfg.output_schema:
+                import core.schemas
+                schema_cls = getattr(core.schemas, node_cfg.output_schema, None)
+                if schema_cls is None:
+                    errors.append(f"Node {node_id}: unknown output_schema '{node_cfg.output_schema}'")
+                    node_has_error = True
+
             if node_has_error:
                 continue
 
@@ -206,6 +202,8 @@ def load_workflow_from_json(json_path: str) -> tuple[Workflow, dict]:
                 model=LiteLlm(**llm_kwargs),
                 instruction=instruction,
                 tools=tools_list,
+                output_schema=schema_cls,
+                output_key=node_cfg.output_key,
             )
             node_retry = RetryConfig(max_attempts=spec.config.retry_attempts) if spec.config.retry_attempts > 1 else None
             nodes[node_id] = node(agent, name=node_id, retry_config=node_retry)

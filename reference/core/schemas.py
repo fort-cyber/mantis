@@ -20,3 +20,13 @@ class VulnerabilityReport(BaseModel):
         description="A list of all vulnerabilities found in the file. Empty if none found."
     )
 
+class ReviewVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    route: Literal["confirmed", "false_positive"]
+    reason: str = Field(description="One sentence justifying the verdict.")
+
+class ReproVerdict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    route: Literal["success", "failed_repro"]
+    reason: str = Field(description="One sentence describing what was executed and observed.")
+

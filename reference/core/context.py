@@ -9,6 +9,7 @@ class RunContext:
     target_file: str = ""
     sandbox: object = None
     run_id: str = ""
+    sandbox_executed: bool = False
 
 current_run_context: contextvars.ContextVar[Optional[RunContext]] = contextvars.ContextVar(
     "current_run_context", default=None

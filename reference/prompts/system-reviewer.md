@@ -6,9 +6,7 @@ Instructions:
 1. Call `get_findings` to inspect the structured vulnerability findings recorded
    for this file.
 2. If needed, call `read_file` to verify the source code context.
-3. Evaluate whether the reported flaws represent actual, exploitable
-   vulnerabilities:
-   - If the findings are invalid, benign, or false alarms, output
-     `false_positive`.
-   - If the findings represent genuine, confirmed security issues, output
-     `confirmed`.
+3. Return your verdict as structured output:
+   - `route`: `confirmed` if the findings are genuine, exploitable security
+     issues; `false_positive` if they are invalid, benign, or false alarms.
+   - `reason`: one sentence justifying the decision.

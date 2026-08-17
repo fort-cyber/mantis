@@ -3,6 +3,27 @@ set -e
 
 cd "$(dirname "$0")"
 
+# --- Platform Gate ---
+OS="$(uname -s)"
+case "$OS" in
+    Linux)
+        # Standard Linux environment (including WSL2)
+        ;;
+    Darwin)
+        echo "WARNING: macOS (Darwin) detected. MicroVM / KVM hardware virtualization is unsupported on macOS."
+        echo "         Dynamic reproduction requires a container runtime or setting sandbox.type to 'static-only'"
+        echo "         in workflow.json for static-only analysis."
+        ;;
+    CYGWIN*|MINGW*|MSYS*)
+        echo "ERROR: Native Windows is not supported due to shell and virtualenv layout differences (.venv/Scripts vs .venv/bin)." >&2
+        echo "       Please use WSL2 (Windows Subsystem for Linux), where Mantis runs unmodified." >&2
+        exit 1
+        ;;
+    *)
+        echo "WARNING: Unrecognized platform '$OS'. Proceeding with standard installation..."
+        ;;
+esac
+
 echo "Setting up virtual environment..."
 python3 -m venv .venv
 source .venv/bin/activate
@@ -50,7 +71,7 @@ else
     if [ "$BUILD_SUCCESS" -eq 0 ]; then
         echo "WARNING: failed to build sandbox image with any available builder (buildah, podman, docker)."
         echo "         Dynamic reproduction needs the sandbox image; install one and re-run ./install.sh,"
-        echo "         or set sandbox.type to 'gvisor' or 'none' in workflow.json."
+        echo "         or set sandbox.type to 'gvisor' or 'static-only' in workflow.json."
     fi
 fi
 
